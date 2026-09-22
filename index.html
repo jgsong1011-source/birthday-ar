@@ -52,10 +52,11 @@ const fail = document.getElementById('fail');
 
 // 배치 값 (make_card.py와 맞춤). 카드 폭 = 1 단위, 카드 중심 = 원점.
 const CARD_ASPECT = 900 / 600;   // 카드 세로/가로 (card.mind 컴파일 이미지와 같아야 함)
-const PLANE_W = 0.9;             // 영상 폭
-const PLANE_H = PLANE_W * 16 / 9;
 const FOOT = 0.14;               // 영상 아래에서 캐릭터 발까지 (영상 높이 대비)
-const FLOOR = 0.40;              // 카드 아래에서 무대 바닥선까지
+const FLOOR = 0.30;              // 카드 아래에서 무대 바닥선까지
+const TOP = 1.48;                // 카드 아래에서 영상 위 끝까지 (카드 높이 1.5 안쪽 → 영상이 카드 밖으로 안 나감)
+const PLANE_H = (TOP - FLOOR) / (1 - FOOT);
+const PLANE_W = PLANE_H * 9 / 16;
 
 let found = false;
 let soundOn = false;
