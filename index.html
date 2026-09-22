@@ -114,12 +114,29 @@ const material = new THREE.ShaderMaterial({
   fragmentShader: `
     uniform sampler2D map;
     varying vec2 vUv;
+    float alphaAt(vec2 uv) {
+      if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 0.998) return 0.0;
+      return clamp((texture2D(map, vec2(uv.x, uv.y * 0.5)).r - 0.04) / 0.92, 0.0, 1.0);
+    }
     void main() {
       vec3 color = texture2D(map, vec2(vUv.x, 0.5 + vUv.y * 0.5)).rgb;
-      float a = texture2D(map, vec2(vUv.x, vUv.y * 0.5)).r;
-      a = clamp((a - 0.04) / 0.92, 0.0, 1.0);
-      if (a < 0.01) discard;
-      gl_FragColor = vec4(color, a);
+      float a = alphaAt(vUv);
+      // 위쪽 글씨 구간에만 부드러운 진한 그림자를 깔아 흰 배경에서도 글씨가 보이게 한다.
+      // 주변 알파의 평균을 쓰므로 굵은 글씨에는 진하게, 작은 색종이에는 거의 안 생긴다.
+      float textZone = smoothstep(0.69, 0.73, vUv.y);
+      float sum = 0.0;
+      if (textZone > 0.0) {
+        for (int i = 0; i < 16; i++) {
+          float ang = float(i) * 0.3927;
+          vec2 dir = vec2(cos(ang), sin(ang)) * vec2(1.0 / 540.0, 1.0 / 960.0);
+          sum += alphaAt(vUv + dir * 5.0) + alphaAt(vUv + dir * 10.0) + alphaAt(vUv + dir * 16.0);
+        }
+      }
+      float back = textZone * smoothstep(0.05, 0.26, sum / 48.0) * 0.9;
+      float outA = a + (1.0 - a) * back;
+      if (outA < 0.01) discard;
+      vec3 backColor = vec3(0.16, 0.08, 0.30);
+      gl_FragColor = vec4(mix(backColor, color, a / max(outA, 0.001)), outA);
     }`,
 });
 
