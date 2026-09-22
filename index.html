@@ -93,8 +93,7 @@ const mindar = new MindARThree({
   imageTargetSrc: 'card.mind',
   uiScanning: 'no',
   uiLoading: 'yes',
-  filterMinCF: 0.0005,
-  filterBeta: 0.01,
+  missTolerance: 10,   // 잠깐 인식이 끊겨도 바로 사라지지 않게
 });
 const { renderer, scene, camera } = mindar;
 
@@ -147,7 +146,32 @@ const bottom = -CARD_ASPECT / 2 + FLOOR - FOOT * PLANE_H;
 plane.position.set(0, bottom + PLANE_H / 2, 0.01);
 
 const anchor = mindar.addAnchor(0);
-anchor.group.add(plane);
+
+// 영상은 앵커에 직접 붙이지 않고 따로 둔 뒤 매 프레임 앵커 위치를 부드럽게 따라가게 한다.
+// 작은 변화(인식 떨림)는 강하게 눌러 주고, 큰 변화(카드를 실제로 움직임)는 바로 따라간다.
+const holder = new THREE.Group();
+holder.visible = false;
+holder.add(plane);
+scene.add(holder);
+const tPos = new THREE.Vector3(), tQuat = new THREE.Quaternion(), tScale = new THREE.Vector3();
+let snap = true;
+function follow() {
+  if (!found) { holder.visible = false; snap = true; return; }
+  anchor.group.updateWorldMatrix(true, false);
+  anchor.group.matrixWorld.decompose(tPos, tQuat, tScale);
+  if (snap) {
+    holder.position.copy(tPos); holder.quaternion.copy(tQuat); holder.scale.copy(tScale);
+    snap = false;
+  } else {
+    const move = holder.position.distanceTo(tPos) / tScale.x;   // 카드 폭 대비 이동량
+    const turn = holder.quaternion.angleTo(tQuat);              // 라디안
+    const k = THREE.MathUtils.clamp(Math.max(move / 0.08, turn / 0.15), 0.05, 0.8);
+    holder.position.lerp(tPos, k);
+    holder.quaternion.slerp(tQuat, k);
+    holder.scale.lerp(tScale, k);
+  }
+  holder.visible = true;
+}
 anchor.onTargetFound = () => {
   found = true;
   show(hint, false);
@@ -171,7 +195,7 @@ async function start() {
   started = true;
   show(hint, !found);
   show(soundBar, !soundOn);
-  renderer.setAnimationLoop(() => renderer.render(scene, camera));
+  renderer.setAnimationLoop(() => { follow(); renderer.render(scene, camera); });
 }
 
 document.getElementById('retry').addEventListener('click', () => location.reload());
