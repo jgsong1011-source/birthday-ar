@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>생일 축하 AR</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #111; color: #fff;
+    font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; }
+  #ar { position: fixed; inset: 0; }
+  #start { position: fixed; inset: 0; z-index: 20; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 20px; padding: 24px; text-align: center;
+    background: linear-gradient(#ffe3f0, #dff0ff); color: #333; }
+  #start h1 { margin: 0; font-size: 30px; color: #e23c6e; }
+  #start p { margin: 0; font-size: 17px; line-height: 1.5; }
+  button { font: inherit; border: 0; cursor: pointer; }
+  #go { font-size: 24px; font-weight: 700; padding: 18px 64px; border-radius: 40px;
+    background: #e23c6e; color: #fff; box-shadow: 0 6px 18px rgba(226,60,110,.35); }
+  #go:disabled { opacity: .6; }
+  #hint { position: fixed; left: 0; right: 0; bottom: max(24px, env(safe-area-inset-bottom)); z-index: 10;
+    text-align: center; pointer-events: none; display: none; }
+  #hint span { display: inline-block; padding: 10px 18px; border-radius: 20px; background: rgba(0,0,0,.55); font-size: 16px; }
+  #sound { position: fixed; top: max(16px, env(safe-area-inset-top)); right: 16px; z-index: 15; display: none;
+    padding: 12px 18px; border-radius: 24px; background: #fff; color: #e23c6e; font-size: 17px; font-weight: 700;
+    box-shadow: 0 4px 12px rgba(0,0,0,.3); }
+  #msg { color: #c00; font-size: 15px; min-height: 1em; }
+  #clip { position: fixed; left: 0; top: 0; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+    "mindar-image-three": "https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-three.prod.js"
+  }
+}
+</script>
+</head>
+<body>
+<div id="ar"></div>
+<div id="start">
+  <h1>🎂 생일 축하해!</h1>
+  <p>「시작」을 누르고 카메라를 허용한 뒤<br>카드를 화면에 비춰 주세요.</p>
+  <button id="go">시작</button>
+  <p id="msg"></p>
+</div>
+<div id="hint"><span>카드 전체가 보이게 비춰 주세요</span></div>
+<button id="sound">🔇 소리 켜기</button>
+<video id="clip" src="cake.mp4" playsinline webkit-playsinline preload="auto" loop></video>
+
+<script type="module">
+import * as THREE from 'three';
+import { MindARThree } from 'mindar-image-three';
+
+const video = document.getElementById('clip');
+const startEl = document.getElementById('start');
+const goBtn = document.getElementById('go');
+const msg = document.getElementById('msg');
+const hint = document.getElementById('hint');
+const soundBtn = document.getElementById('sound');
+
+const CARD_ASPECT = 900 / 600;   // 마커 카드 세로/가로 (card.mind 컴파일 이미지와 같아야 함)
+const VIDEO_ASPECT = 1920 / 2 / 540; // 한쪽 절반(540x960) 기준 세로/가로
+
+let found = false;
+
+// 탭한 순간(사용자 제스처 안에서) 영상 재생을 시작해 아이폰 소리 잠금을 푼다.
+function unlockVideo() {
+  video.muted = false;
+  return video.play().then(() => {
+    if (!found) video.pause();
+  }).catch(() => {
+    // 소리 재생이 막히면 음소거로 재생하고 소리 켜기 버튼을 보여 준다
+    video.muted = true;
+    soundBtn.style.display = 'block';
+    return video.play().then(() => { if (!found) video.pause(); }).catch(() => {});
+  });
+}
+
+soundBtn.addEventListener('click', () => {
+  video.muted = false;
+  video.play().catch(() => {});
+  soundBtn.style.display = 'none';
+});
+
+async function start() {
+  goBtn.disabled = true;
+  msg.textContent = '';
+  const unlocked = unlockVideo();
+
+  const mindar = new MindARThree({
+    container: document.getElementById('ar'),
+    imageTargetSrc: 'card.mind',
+    uiScanning: 'no',
+    uiLoading: 'yes',
+    filterMinCF: 0.0005,
+    filterBeta: 0.01,
+  });
+  const { renderer, scene, camera } = mindar;
+
+  const tex = new THREE.VideoTexture(video);
+  tex.minFilter = THREE.LinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  tex.generateMipmaps = false;
+
+  // 위 절반 = 색상, 아래 절반 = 흑백 알파. flipY 때문에 텍스처 좌표에서는 색상이 v 0.5~1 쪽이다.
+  const material = new THREE.ShaderMaterial({
+    uniforms: { map: { value: tex } },
+    transparent: true,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    vertexShader: `
+      varying vec2 vUv;
+      void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+    fragmentShader: `
+      uniform sampler2D map;
+      varying vec2 vUv;
+      void main() {
+        vec3 color = texture2D(map, vec2(vUv.x, 0.5 + vUv.y * 0.5)).rgb;
+        float a = texture2D(map, vec2(vUv.x, vUv.y * 0.5)).r;
+        a = clamp((a - 0.04) / 0.92, 0.0, 1.0);
+        if (a < 0.01) discard;
+        gl_FragColor = vec4(color, a);
+      }`,
+  });
+
+  // 카드 폭 = 1. 영상 아래쪽을 카드 아래 끝에 맞춰 카드 위를 덮는다.
+  const plane = new THREE.Mesh(new THREE.PlaneGeometry(1, VIDEO_ASPECT), material);
+  plane.position.set(0, -CARD_ASPECT / 2 + VIDEO_ASPECT / 2, 0.01);
+
+  const anchor = mindar.addAnchor(0);
+  anchor.group.add(plane);
+  anchor.onTargetFound = () => {
+    found = true;
+    hint.style.display = 'none';
+    video.play().catch(() => {
+      video.muted = true;
+      soundBtn.style.display = 'block';
+      video.play().catch(() => {});
+    });
+  };
+  anchor.onTargetLost = () => {
+    found = false;
+    hint.style.display = 'block';
+    video.pause();
+  };
+
+  try {
+    await mindar.start();
+  } catch (e) {
+    goBtn.disabled = false;
+    msg.textContent = '카메라를 켜지 못했어요. 브라우저 설정에서 카메라 권한을 허용한 뒤 다시 눌러 주세요.';
+    console.error(e);
+    return;
+  }
+  await unlocked;
+  startEl.style.display = 'none';
+  hint.style.display = found ? 'none' : 'block';
+  renderer.setAnimationLoop(() => renderer.render(scene, camera));
+}
+
+goBtn.addEventListener('click', start);
+</script>
+</body>
+</html>
