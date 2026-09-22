@@ -1,5 +1,7 @@
 ﻿make_card.py
+make_card_labrador.py
+make_alpha_video.py
 card_target.png
-생일카메라_QR.png
-생일카드_AR마커_10x15cm.png
+생일카메라_QR*.png
+생일카드_*
 
